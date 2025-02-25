@@ -175,14 +175,11 @@ def train(model, score_func, train_pos, x, optimizer, batch_size):
     for perm in DataLoader(range(train_pos.size(0)), batch_size,
                            shuffle=True):
         optimizer.zero_grad()
-
-
         num_nodes = x.size(0)
 
         ######################### remove loss edges from the aggregation
         mask = torch.ones(train_pos.size(0), dtype=torch.bool).to(train_pos.device)
         mask[perm] = 0
-    
         train_edge_mask = train_pos[mask].transpose(1,0)
 
         # train_edge_mask = to_undirected(train_edge_mask)
@@ -190,15 +187,14 @@ def train(model, score_func, train_pos, x, optimizer, batch_size):
         # edge_weight_mask = torch.cat((edge_weight_mask, edge_weight_mask), dim=0).to(torch.float)
         edge_weight_mask = torch.ones(train_edge_mask.size(1)).to(torch.float).to(train_pos.device)
         
-        adj = SparseTensor.from_edge_index(train_edge_mask, edge_weight_mask, [num_nodes, num_nodes]).to(train_pos.device)
+        adj = SparseTensor.from_edge_index(train_edge_mask, edge_weight_mask, 
+                                           [num_nodes, num_nodes]).to(train_pos.device)
             
         ###################
         # print(adj)
 
         h = model(x, adj)
-
         edge = train_pos[perm].t()
-
         pos_out = score_func(h[edge[0]], h[edge[1]])
         pos_loss = -torch.log(pos_out + 1e-15).mean()
 
@@ -226,17 +222,14 @@ def train(model, score_func, train_pos, x, optimizer, batch_size):
 
 @torch.no_grad()
 def test_edge(score_func, input_data, h, batch_size):
-
     # input_data  = input_data.transpose(1, 0)
     # with torch.no_grad():
     preds = []
     for perm  in DataLoader(range(input_data.size(0)), batch_size):
         edge = input_data[perm].t()
-    
-        preds += [score_func(h[edge[0]], h[edge[1]]).cpu()]
-        
-    pred_all = torch.cat(preds, dim=0)
+        preds += [score_func(h[edge[0]], h[edge[1]]).cpu()]  
 
+    pred_all = torch.cat(preds, dim=0)
     return pred_all
 
 
@@ -244,33 +237,25 @@ def test_edge(score_func, input_data, h, batch_size):
 def test(model, score_func, data, x, evaluator_hit, evaluator_mrr, batch_size):
     model.eval()
     score_func.eval()
-
     # adj_t = adj_t.transpose(1,0)
-    
-    
     h = model(x, data['adj'].to(x.device))
     # print(h[0][:10])
     x = h
 
     pos_train_pred = test_edge(score_func, data['train_val'], h, batch_size)
-
     neg_valid_pred = test_edge(score_func, data['valid_neg'], h, batch_size)
-
     pos_valid_pred = test_edge(score_func, data['valid_pos'], h, batch_size)
-
     pos_test_pred = test_edge(score_func, data['test_pos'], h, batch_size)
-
     neg_test_pred = test_edge(score_func, data['test_neg'], h, batch_size)
-
     pos_train_pred = torch.flatten(pos_train_pred)
     neg_valid_pred, pos_valid_pred = torch.flatten(neg_valid_pred),  torch.flatten(pos_valid_pred)
     pos_test_pred, neg_test_pred = torch.flatten(pos_test_pred), torch.flatten(neg_test_pred)
 
-
-    print('train valid_pos valid_neg test_pos test_neg', pos_train_pred.size(), pos_valid_pred.size(), neg_valid_pred.size(), pos_test_pred.size(), neg_test_pred.size())
+    print('train valid_pos valid_neg test_pos test_neg', 
+          pos_train_pred.size(), pos_valid_pred.size(), 
+          neg_valid_pred.size(), pos_test_pred.size(), neg_test_pred.size())
     
     result = get_metric_score(evaluator_hit, evaluator_mrr, pos_train_pred, pos_valid_pred, neg_valid_pred, pos_test_pred, neg_test_pred)
-    
 
     score_emb = [pos_valid_pred.cpu(),neg_valid_pred.cpu(), pos_test_pred.cpu(), neg_test_pred.cpu(), x.cpu()]
 
@@ -312,16 +297,12 @@ def main():
     
     ####### gin
     parser.add_argument('--gin_mlp_layer', type=int, default=2)
-
     ######gat
     parser.add_argument('--gat_head', type=int, default=1)
-
     ######mf
     parser.add_argument('--cat_node_feat_mf', default=False, action='store_true')
-
     ###### n2v
     parser.add_argument('--cat_n2v_feat', default=False, action='store_true')
-    
     args = parser.parse_args()
    
 
@@ -337,10 +318,7 @@ def main():
     # dataset = Planetoid('.', 'cora')
 
     data = read_data(args.data_name, args.neg_mode)
-
-   
     node_num = data['x'].size(0)
-
     x = data['x']
 
     if args.cat_n2v_feat:
@@ -353,12 +331,13 @@ def main():
 
     input_channel = x.size(1)
     model = eval(args.gnn_model)(input_channel, args.hidden_channels,
-                    args.hidden_channels, args.num_layers, args.dropout, args.gin_mlp_layer, args.gat_head, node_num, args.cat_node_feat_mf).to(device)
+                    args.hidden_channels, args.num_layers, args.dropout, 
+                    args.gin_mlp_layer, args.gat_head, node_num, 
+                    args.cat_node_feat_mf).to(device)
     
     score_func = eval(args.score_model)(args.hidden_channels, args.hidden_channels,
                     1, args.num_layers_predictor, args.dropout).to(device)
    
-    
     eval_metric = args.metric
     evaluator_hit = Evaluator(name='ogbl-collab')
     evaluator_mrr = Evaluator(name='ogbl-citation2')
@@ -374,7 +353,6 @@ def main():
     }
 
     for run in range(args.runs):
-
         print('#################################          ', run, '          #################################')
         
         if args.runs == 1:
@@ -382,7 +360,6 @@ def main():
         else:
             seed = run
         print('seed: ', seed)
-
         init_seed(seed)
         
         save_path = args.output_dir+'/lr'+str(args.lr) + '_drop' + str(args.dropout) + '_l2'+ str(args.l2) + '_numlayer' + str(args.num_layers)+ '_numPredlay' + str(args.num_layers_predictor) + '_numGinMlplayer' + str(args.gin_mlp_layer)+'_dim'+str(args.hidden_channels) + '_'+ 'best_run_'+str(seed)
@@ -411,7 +388,6 @@ def main():
                         print(key)
                         
                         train_hits, valid_hits, test_hits = result
-
 
                         log_print.info(
                             f'Run: {run + 1:02d}, '

@@ -20,7 +20,7 @@ from evalutors import evaluate_hits, evaluate_mrr, evaluate_auc
 
 
 
-log_print		= get_logger('testrun', 'log', get_config_dir())
+log_print = get_logger('testrun', 'log', get_config_dir())
 def read_data(data_name, dir_path, filename):
     data_name = data_name
 
@@ -43,10 +43,7 @@ def read_data(data_name, dir_path, filename):
             if sub == obj:
                 continue
 
-            if split == 'train': 
-                train_pos.append((sub, obj))
-                
-
+            if split == 'train': train_pos.append((sub, obj))
             if split == 'valid': valid_pos.append((sub, obj))  
             if split == 'test': test_pos.append((sub, obj))
     
@@ -104,8 +101,6 @@ def read_data(data_name, dir_path, filename):
 
 def get_metric_score(evaluator_hit, evaluator_mrr, pos_train_pred, pos_val_pred, neg_val_pred, pos_test_pred, neg_test_pred):
 
-    
-   
     result = {}
     k_list = [1, 3, 10, 100]
    
@@ -118,7 +113,6 @@ def get_metric_score(evaluator_hit, evaluator_mrr, pos_train_pred, pos_val_pred,
     for K in [1,3,10, 100]:
         result[f'Hits@{K}'] = (result_mrr_train[f'mrr_hit{K}'], result_mrr_val[f'mrr_hit{K}'], result_mrr_test[f'mrr_hit{K}'])
 
-    
     return result
 
         
@@ -129,34 +123,27 @@ def train(model, score_func, train_pos, x, optimizer, batch_size):
 
     # train_pos = train_pos.transpose(1, 0)
     total_loss = total_examples = 0
-
     for perm in DataLoader(range(train_pos.size(0)), batch_size,
                            shuffle=True):
         optimizer.zero_grad()
-
-
         num_nodes = x.size(0)
 
         ######################### remove loss edges from the aggregation
         mask = torch.ones(train_pos.size(0), dtype=torch.bool).to(train_pos.device)
         mask[perm] = 0
-    
         train_edge_mask = train_pos[mask].transpose(1,0)
 
         # train_edge_mask = to_undirected(train_edge_mask)
         train_edge_mask = torch.cat((train_edge_mask, train_edge_mask[[1,0]]),dim=1)
         # edge_weight_mask = torch.cat((edge_weight_mask, edge_weight_mask), dim=0).to(torch.float)
         edge_weight_mask = torch.ones(train_edge_mask.size(1)).to(torch.float).to(train_pos.device)
-        
         adj = SparseTensor.from_edge_index(train_edge_mask, edge_weight_mask, [num_nodes, num_nodes]).to(train_pos.device)
             
         ###################
         # print(adj)
 
         h = model(x, adj)
-
         edge = train_pos[perm].t()
-
         pos_out = score_func(h[edge[0]], h[edge[1]])
         pos_loss = -torch.log(pos_out + 1e-15).mean()
 
@@ -192,10 +179,8 @@ def test_edge(score_func, input_data, h, batch_size, negative_data=None):
         for perm in DataLoader(range(input_data.size(0)), batch_size):
             pos_edges = input_data[perm].t()
             neg_edges = torch.permute(negative_data[perm], (2, 0, 1))
-
             pos_scores = score_func(h[pos_edges[0]], h[pos_edges[1]]).cpu()
             neg_scores = score_func(h[neg_edges[0]], h[neg_edges[1]]).cpu()
-
             pos_preds += [pos_scores]
             neg_preds += [neg_scores]
         
@@ -219,17 +204,12 @@ def test(model, score_func, data, x, evaluator_hit, evaluator_mrr, batch_size):
     h = model(x, data['adj'].to(x.device))
     # print(h[0][:10])
     x = h
-
-
     pos_train_pred, _ = test_edge(score_func, data['train_val'], h, batch_size)
     pos_valid_pred, neg_valid_pred = test_edge(score_func, data['valid_pos'], h, batch_size, negative_data=data['valid_neg'])
     pos_test_pred, neg_test_pred = test_edge(score_func, data['test_pos'], h, batch_size, negative_data=data['test_neg'])
-
-
     pos_train_pred = torch.flatten(pos_train_pred)
     pos_valid_pred = torch.flatten(pos_valid_pred)
     pos_test_pred = torch.flatten(pos_test_pred)
-
     neg_valid_pred = neg_valid_pred.squeeze(-1)
     neg_test_pred = neg_test_pred.squeeze(-1)
 
@@ -237,8 +217,6 @@ def test(model, score_func, data, x, evaluator_hit, evaluator_mrr, batch_size):
     print('train valid_pos valid_neg test_pos test_neg', pos_train_pred.size(), pos_valid_pred.size(), neg_valid_pred.size(), pos_test_pred.size(), neg_test_pred.size())
     
     result = get_metric_score(evaluator_hit, evaluator_mrr, pos_train_pred, pos_valid_pred, neg_valid_pred, pos_test_pred, neg_test_pred)
-    
-
     score_emb = [pos_valid_pred.cpu(),neg_valid_pred.cpu(), pos_test_pred.cpu(), neg_test_pred.cpu(), x.cpu()]
 
     return result, score_emb
@@ -311,15 +289,13 @@ def main():
     # dataset = Planetoid('.', 'cora')
 
     data = read_data(args.data_name, args.input_dir, args.filename)
-
-   
     node_num = data['x'].size(0)
-
     x = data['x']
 
     if args.cat_n2v_feat:
         print('cat n2v embedding!!')
-        n2v_emb = torch.load(os.path.join(get_root_dir(), 'dataset', args.data_name+'-n2v-embedding.pt'))
+        n2v_emb = torch.load(os.path.join(get_root_dir(), 'dataset', 
+                                          args.data_name+'-n2v-embedding.pt'))
         x = torch.cat((x, n2v_emb), dim=-1)
 
     x = x.to(device)
@@ -327,7 +303,9 @@ def main():
 
     input_channel = x.size(1)
     model = eval(args.gnn_model)(input_channel, args.hidden_channels,
-                    args.hidden_channels, args.num_layers, args.dropout, args.gin_mlp_layer, args.gat_head, node_num, args.cat_node_feat_mf).to(device)
+                    args.hidden_channels, args.num_layers, args.dropout, 
+                    args.gin_mlp_layer, args.gat_head, node_num, 
+                    args.cat_node_feat_mf).to(device)
     
     score_func = eval(args.score_model)(args.hidden_channels, args.hidden_channels,
                     1, args.num_layers_predictor, args.dropout).to(device)
@@ -343,7 +321,6 @@ def main():
         'Hits@10': Logger(args.runs),
         'Hits@100': Logger(args.runs),
         'MRR': Logger(args.runs),
-       
     }
 
     for run in range(args.runs):
@@ -358,9 +335,12 @@ def main():
 
         init_seed(seed)
         
-        save_path = args.output_dir+'/lr'+str(args.lr) + '_drop' + str(args.dropout) + '_l2'+ str(args.l2) + '_numlayer' + str(args.num_layers)+ '_numPredlay' + str(args.num_layers_predictor) + '_numGinMlplayer' + str(args.gin_mlp_layer)+'_dim'+str(args.hidden_channels) + '_'+ 'best_run_'+str(seed)
-        
-    
+        save_path = args.output_dir + '/lr'+str(args.lr)
+        + '_drop' + str(args.dropout) + '_l2'
+        + str(args.l2) + '_numlayer' + str(args.num_layers)
+        + '_numPredlay' + str(args.num_layers_predictor)
+        + '_numGinMlplayer' + str(args.gin_mlp_layer)
+        + '_dim'+str(args.hidden_channels) + '_' + 'best_run_'+str(seed)
 
         model.reset_parameters()
         score_func.reset_parameters()
@@ -382,12 +362,9 @@ def main():
 
                 if epoch % args.log_steps == 0:
                     for key, result in results_rank.items():
-                        
                         print(key)
-                        
                         train_hits, valid_hits, test_hits = result
                        
-
                         log_print.info(
                             f'Run: {run + 1:02d}, '
                               f'Epoch: {epoch:02d}, '
@@ -402,15 +379,10 @@ def main():
                 if best_valid_current > best_valid:
                     best_valid = best_valid_current
                     kill_cnt = 0
-
                     if args.save:
-
                         save_emb(score_emb, save_path)
-
-                
                 else:
                     kill_cnt += 1
-                    
                     if kill_cnt > args.kill_cnt: 
                         print("Early Stopping!!")
                         break
@@ -424,14 +396,11 @@ def main():
     for key in loggers.keys():
 
         print(key)
-        
         best_metric,  best_valid_mean, mean_list, var_list = loggers[key].print_statistics()
 
         if key == eval_metric:
             best_metric_valid_str = best_metric
             best_valid_mean_metric = best_valid_mean
-
-
             
         if key == 'AUC':
             best_auc_valid_str = best_metric
@@ -439,12 +408,10 @@ def main():
 
         result_all_run[key] = [mean_list, var_list]
         
-    
     # print(best_metric_valid_str +' ' +best_auc_valid_str)
 
     print(best_metric_valid_str)
     best_auc_metric = best_valid_mean_metric
-
 
     return best_valid_mean_metric, best_auc_metric, result_all_run
 
