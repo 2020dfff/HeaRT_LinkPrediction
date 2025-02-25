@@ -11,7 +11,8 @@ from sklearn.metrics.pairwise import cosine_similarity
 
 from hard_utils import *
 from calc_ppr import create_ppr_matrices
-
+import pickle
+from datetime import datetime
 
 ROOT_DIR = os.path.join(os.path.dirname(os.path.realpath(__file__)), "..")
 
@@ -240,9 +241,15 @@ def calc_all_heuristics(args):
 
     if "ogb" in args.dataset.lower():
         data = get_data_ogb(args)
+        with open(os.path.join(dataset_dir, "data.pkl"), "wb") as f:
+            pickle.dump(data, f)
+            print("OGB Data saved as pickle file")
         feat_sim_scores = None
     else:
         data = get_data_planetoid(args.dataset)
+        with open(os.path.join(dataset_dir, "data.pkl"), "wb") as f:
+            pickle.dump(data, f)
+            print("Planetoid Data saved as pickle file")
         feat_sim_scores = calc_feat_sim(data)
 
     val_cn_scores  = calc_CN_metric(data, args.cn_metric)
@@ -251,11 +258,11 @@ def calc_all_heuristics(args):
 
     print("\n>>> Valid")
     val_neg_samples = rank_and_merge_edges(data['valid_pos'], val_cn_scores, val_ppr_scores, feat_sim_scores, data, args)
-    save_samples(val_neg_samples, os.path.join(dataset_dir, f"heart_valid_samples.npy"))
+    save_samples(val_neg_samples, os.path.join(dataset_dir, f"heart_valid_samples_{datetime.now().strftime('%Y%m%d%H%M%S')}.npy"))
 
     print("\n>>> Test")
     test_neg_samples = rank_and_merge_edges(data['test_pos'], test_cn_scores, test_ppr_scores, feat_sim_scores, data, args, test=True)
-    save_samples(test_neg_samples, os.path.join(dataset_dir, f"heart_test_samples.npy"))
+    save_samples(test_neg_samples, os.path.join(dataset_dir, f"heart_test_samples_{datetime.now().strftime('%Y%m%d%H%M%S')}.npy"))
 
 
 

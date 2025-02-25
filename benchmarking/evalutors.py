@@ -33,7 +33,6 @@ def evaluate_mrr(evaluator, pos_val_pred, neg_val_pred):
     
     mrr_output =  eval_mrr(pos_val_pred, neg_val_pred)
 
-
     valid_mrr =mrr_output['mrr_list'].mean().item()
     valid_mrr_hit1 = mrr_output['hits@1_list'].mean().item()
     valid_mrr_hit3 = mrr_output['hits@3_list'].mean().item()
@@ -42,7 +41,6 @@ def evaluate_mrr(evaluator, pos_val_pred, neg_val_pred):
     valid_mrr_hit20 = mrr_output['hits@20_list'].mean().item()
     valid_mrr_hit50 = mrr_output['hits@50_list'].mean().item()
     valid_mrr_hit100 = mrr_output['hits@100_list'].mean().item()
-
 
     valid_mrr = round(valid_mrr, 4)
     # test_mrr = round(test_mrr, 4)
@@ -65,7 +63,6 @@ def evaluate_mrr(evaluator, pos_val_pred, neg_val_pred):
     results['mrr_hit50'] = valid_mrr_hit50
     results['mrr_hit100'] = valid_mrr_hit100
 
-    
     return results
 
 
