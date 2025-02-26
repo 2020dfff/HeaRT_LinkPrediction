@@ -12,7 +12,7 @@ from torch_geometric.utils import coalesce, to_undirected
 import joblib  # Make ogb loads faster
 from ogb.linkproppred import PygLinkPropPredDataset
 
-from hard_utils import get_data_planetoid
+from hard_utils import get_data_planetoid, get_data_default, get_data_ogb
 
 
 
@@ -163,18 +163,15 @@ def create_ppr_matrices(data_name, alpha=0.15, eps=5e-5, use_val_in_test=False):
     """
     if data_name.lower() in ['cora', 'citeseer', 'pubmed']:
         data = get_data_planetoid(data_name)
-
         neighbors, neighbor_weights = get_ppr_matrix(data['edge_index'], data['num_nodes'], alpha, eps)
         sparse_adj = create_sparse_ppr_matrix(neighbors, neighbor_weights)
         save_results(data_name, sparse_adj, alpha, eps) 
-    else:
+    elif "ogb" in data_name.lower():
         dataset = PygLinkPropPredDataset(name=data_name)
         data = dataset[0]
-
         neighbors, neighbor_weights = get_ppr_matrix(data['edge_index'], data['num_nodes'], alpha, eps)
         sparse_adj = create_sparse_ppr_matrix(neighbors, neighbor_weights)
         save_results(data_name, sparse_adj, alpha, eps)
-
         if use_val_in_test:
             print("Running for Test...")
             split_edge = dataset.get_edge_split()
@@ -184,6 +181,9 @@ def create_ppr_matrices(data_name, alpha=0.15, eps=5e-5, use_val_in_test=False):
             neighbors, neighbor_weights = get_ppr_matrix(full_edge_index, data['num_nodes'], alpha, eps)
             sparse_adj = create_sparse_ppr_matrix(neighbors, neighbor_weights)
             save_results(data_name, sparse_adj, alpha, eps, val=True)
-
-
+    else:
+        data = get_data_default(data_name)
+        neighbors, neighbor_weights = get_ppr_matrix(data['edge_index'], data['num_nodes'], alpha, eps)
+        sparse_adj = create_sparse_ppr_matrix(neighbors, neighbor_weights)
+        save_results(data_name, sparse_adj, alpha, eps) 
 
