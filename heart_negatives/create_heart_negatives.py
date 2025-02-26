@@ -80,16 +80,35 @@ def calc_CN_metric(data, metric="RA", use_val=False):
     return cn_scores
 
 
-def calc_feat_sim(data):
-    """
-    Calculate the feature similarity of all node pairs.
+# def calc_feat_sim(data):
+#     """
+#     Calculate the feature similarity of all node pairs.
 
-    We use cosine similarity
+#     We use cosine similarity
 
-    NOTE: Don't attempt this on OGB since its expensive. Batch instead
+#     NOTE: Don't attempt this on OGB since its expensive. Batch instead
+#     """
+#     print("Calculating Feature Similarity...")
+#     return cosine_similarity(data['x'].numpy(), data['x'].numpy())
+
+def calc_feat_sim(data, batch_size=1000):
     """
-    print("Calculating Feature Similarity...")
-    return cosine_similarity(data['x'].numpy(), data['x'].numpy())
+    Calculate the feature similarity of all node pairs in batches.
+
+    We use cosine similarity.
+
+    NOTE: Don't attempt this on OGB since it's expensive. Batch instead.
+    """
+    print("Calculating Feature Similarity in batches...")
+    x = data['x'].numpy()
+    num_nodes = x.shape[0]
+    feat_sim = np.zeros((num_nodes, num_nodes))
+
+    for start in tqdm(range(0, num_nodes, batch_size), desc="Batching Feature Similarity"):
+        end = min(start + batch_size, num_nodes)
+        feat_sim[start:end] = cosine_similarity(x[start:end], x)
+
+    return feat_sim
 
 
 def rank_score_matrix(row):
@@ -241,15 +260,18 @@ def calc_all_heuristics(args):
 
     if "ogb" in args.dataset.lower():
         data = get_data_ogb(args)
-        with open(os.path.join(dataset_dir, "data.pkl"), "wb") as f:
-            pickle.dump(data, f)
-            print("OGB Data saved as pickle file")
+        # with open(os.path.join(dataset_dir, "data.pkl"), "wb") as f:
+        #     pickle.dump(data, f)
+        #     print("OGB Data saved as pickle file")
         feat_sim_scores = None
-    else:
+    elif any(dataset in args.dataset.lower() for dataset in ["cora", "citeseer", "pubmed"]):
         data = get_data_planetoid(args.dataset)
-        with open(os.path.join(dataset_dir, "data.pkl"), "wb") as f:
-            pickle.dump(data, f)
-            print("Planetoid Data saved as pickle file")
+        # with open(os.path.join(dataset_dir, "data.pkl"), "wb") as f:
+        #     pickle.dump(data, f)
+        #     print("Planetoid Data saved as pickle file")
+        feat_sim_scores = calc_feat_sim(data)
+    else:
+        data = get_data_default(args.dataset)
         feat_sim_scores = calc_feat_sim(data)
 
     val_cn_scores  = calc_CN_metric(data, args.cn_metric)
