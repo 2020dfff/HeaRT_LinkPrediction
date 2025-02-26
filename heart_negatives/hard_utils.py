@@ -115,23 +115,87 @@ def get_data_planetoid(data_name):
             if split == 'test':  test_pos.append((sub, obj))
     
     num_nodes = len(node_set)
+    num_edges = len(train_pos) + len(valid_pos) + len(test_pos)
+    print('Number of nodes: {}, Number of edges: {}'.format(num_nodes, num_edges))
 
-    train_edge = torch.transpose(torch.tensor(train_pos), 1, 0)
-    edge_index = torch.cat((train_edge,  train_edge[[1,0]]), dim=1)
-    edge_weight = torch.ones(edge_index.size(1))
+    train_edge = torch.transpose(torch.tensor(train_pos), 1, 0) # transpose to edge_index format
+    edge_index = torch.cat((train_edge,  train_edge[[1,0]]), dim=1) # add reverse edges
+    edge_weight = torch.ones(edge_index.size(1)) # uniform edge weights
 
-    adj = SparseTensor.from_edge_index(edge_index, edge_weight, [num_nodes, num_nodes])
+    adj = SparseTensor.from_edge_index(edge_index, edge_weight, [num_nodes, num_nodes]) # create adj matrix
 
-    valid_pos = torch.tensor(valid_pos)
-    test_pos =  torch.tensor(test_pos)
+    valid_pos = torch.tensor(valid_pos) # convert to tensor
+    test_pos =  torch.tensor(test_pos) # convert to tensor
     
-    val_edge_index = valid_pos.t()
+    val_edge_index = valid_pos.t() # t() is to transpose
     val_edge_index = to_undirected(val_edge_index)
     full_edge_index = torch.cat([edge_index, val_edge_index], dim=-1)
     train_valid_adj = SparseTensor.from_edge_index(full_edge_index, torch.ones(full_edge_index.size(1)), [num_nodes, num_nodes])      
 
     feature_embeddings = torch.load(dir_path + '/dataset' + '/{}/{}'.format(data_name, 'gnn_feature'))
     feature_embeddings = feature_embeddings['entity_embedding']
+
+    data = {
+        "dataset": data_name,
+        "adj_t": adj,
+        "edge_index": edge_index,
+        "train_valid_adj": train_valid_adj,
+        "train_valid_edge_index": full_edge_index,
+        "num_nodes": num_nodes,
+        "x": feature_embeddings,
+        "valid_pos": valid_pos,
+        "test_pos": test_pos
+    }
+
+    return data
+
+
+def get_data_default(data_name):
+    """
+    Get data for bluesky
+    """
+
+    dir_path = os.path.join(os.path.dirname(os.path.realpath(__file__)), "..")
+
+    node_set = set()
+    train_pos, valid_pos, test_pos = [], [], []
+    for split in ['train', 'test', 'valid']:
+        path = dir_path + '/dataset' + '/{}/{}_pos.txt'.format(data_name, split)
+
+        for line in open(path, 'r'):
+            sub, obj = line.strip().split('\t')
+            sub, obj = int(sub), int(obj)
+            
+            node_set.add(sub)
+            node_set.add(obj)
+            
+            if sub == obj:
+                continue
+
+            if split == 'train': train_pos.append((sub, obj))
+            if split == 'valid': valid_pos.append((sub, obj))  
+            if split == 'test':  test_pos.append((sub, obj))
+    
+    num_nodes = len(node_set)
+    num_edges = len(train_pos) + len(valid_pos) + len(test_pos)
+    print('Number of nodes: {}, Number of edges: {}'.format(num_nodes, num_edges))
+
+    train_edge = torch.transpose(torch.tensor(train_pos), 1, 0) # transpose to edge_index format
+    edge_index = torch.cat((train_edge,  train_edge[[1,0]]), dim=1) # add reverse edges
+    edge_weight = torch.ones(edge_index.size(1)) # uniform edge weights
+
+    adj = SparseTensor.from_edge_index(edge_index, edge_weight, [num_nodes, num_nodes]) # create adj matrix
+
+    valid_pos = torch.tensor(valid_pos) # convert to tensor
+    test_pos =  torch.tensor(test_pos) # convert to tensor
+    
+    val_edge_index = valid_pos.t() # t() is to transpose
+    val_edge_index = to_undirected(val_edge_index)
+    full_edge_index = torch.cat([edge_index, val_edge_index], dim=-1)
+    train_valid_adj = SparseTensor.from_edge_index(full_edge_index, torch.ones(full_edge_index.size(1)), [num_nodes, num_nodes])      
+
+    feature_embeddings = torch.load(dir_path + '/dataset' + '/{}/{}'.format(data_name, 'node_features.pt'))
+    # feature_embeddings = feature_embeddings['entity_embedding']
 
     data = {
         "dataset": data_name,
