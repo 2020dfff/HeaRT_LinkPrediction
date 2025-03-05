@@ -1,8 +1,9 @@
 import torch
+import numpy as np
 
 from sklearn.metrics import roc_auc_score
 from sklearn.metrics import average_precision_score
-
+from sklearn.metrics import f1_score, precision_score, recall_score, precision_recall_curve
 
 def evaluate_hits(evaluator, pos_pred, neg_pred, k_list):
     results = {}
@@ -68,24 +69,59 @@ def evaluate_mrr(evaluator, pos_val_pred, neg_val_pred):
 
 
 
-def evaluate_auc(val_pred, val_true):
-    valid_auc = roc_auc_score(val_true, val_pred)
-    # test_auc = roc_auc_score(test_true, test_pred)
+def evaluate_auc(pred, true):
     results = {}
-    
-    valid_auc = round(valid_auc, 4)
-    # test_auc = round(test_auc, 4)
 
-    results['AUC'] = valid_auc
+    auc = roc_auc_score(true, pred)
+    auc = round(auc, 4)
 
-    valid_ap = average_precision_score(val_true, val_pred)
-    # test_ap = average_precision_score(test_true, test_pred)
-    
-    valid_ap = round(valid_ap, 4)
-    # test_ap = round(test_ap, 4)
-    
-    results['AP'] = valid_ap
+    ap = average_precision_score(true, pred)    
+    ap = round(ap, 4)
 
+    results['AUC'] = auc
+    results['AP'] = ap
+
+    return results
+
+
+def evaluate_precision_recall(pred, true):
+    """
+    Evaluate Precision and Recall.
+    Ensure correct data types and handle NaN issues.
+    """
+
+    results = {}
+
+    true = true.cpu().numpy().astype(int)
+    pred = pred.cpu().numpy().astype(float)
+
+    precision, recall, thresholds = precision_recall_curve(true, pred)
+
+    if len(precision) == 0 or len(recall) == 0:
+        return {'Precision': 0.0, 'Recall': 0.0}
+
+    f1_scores = np.nan_to_num(2 * (precision * recall) / (precision + recall + 1e-8))
+
+    best_idx = np.argmax(f1_scores)
+    best_precision = precision[best_idx]
+    best_recall = recall[best_idx]
+
+    results['Precision'] = round(best_precision, 4)
+    results['Recall'] = round(best_recall, 4)
+
+    return results
+
+
+def evaluate_f1(pred, true):
+    """
+    Evaluate F1 score.
+    """
+
+    pred = (pred > 0.5).int()
+    true = true.int()
+
+    f1 = f1_score(true.cpu().numpy(), pred.cpu().numpy())
+    results = {'F1': round(f1, 4)}
 
     return results
 
