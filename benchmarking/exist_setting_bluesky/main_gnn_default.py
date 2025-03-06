@@ -48,6 +48,7 @@ def read_data(data_name, neg_mode):
             if split == 'train': 
                 train_pos.append((sub, obj))
 
+
             if split == 'valid': valid_pos.append((sub, obj))  
             if split == 'test': test_pos.append((sub, obj))
     
@@ -94,9 +95,9 @@ def read_data(data_name, neg_mode):
     idx = torch.randperm(train_pos_tensor.size(0))
     idx = idx[:valid_pos.size(0)]
     train_val = train_pos_tensor[idx]
-
-    feature_embeddings = torch.load(dir_path+'/dataset' + '/{}/{}'.format(data_name, 'gnn_feature'))
+    feature_embeddings = torch.load(dir_path+'/dataset' + '/{}/{}'.format(data_name, 'gnn_feature.pt'))
     # feature_embeddings = feature_embeddings['entity_embedding']
+
 
     data = {}
     data['adj'] = adj
@@ -170,7 +171,7 @@ def train(model, score_func, train_pos, x, optimizer, batch_size):
 
     # train_pos = train_pos.transpose(1, 0)
     total_loss = total_examples = 0
-
+    
     # pos_weight = torch.tensor([3.44]).to(x.device) # unbalanced pos:neg = 1:3.44
     # loss_fn = torch.nn.BCEWithLogitsLoss(pos_weight=pos_weight)
 
@@ -197,13 +198,13 @@ def train(model, score_func, train_pos, x, optimizer, batch_size):
         pos_out = score_func(h[edge[0]], h[edge[1]])
 
         # do negative sampling in larger scale
-        num_neg_samples = int(4 * edge.size(1))
-        neg_edge = torch.randint(0, num_nodes, (2, num_neg_samples), dtype=torch.long, device=h.device)
-        neg_out = score_func(h[neg_edge[0]], h[neg_edge[1]])
+        # num_neg_samples = int(4 * edge.size(1))
+        # neg_edge = torch.randint(0, num_nodes, (2, num_neg_samples), dtype=torch.long, device=h.device)
+        # neg_out = score_func(h[neg_edge[0]], h[neg_edge[1]])
 
         # Just do some trivial random sampling.
-        # edge = torch.randint(0, num_nodes, edge.size(), dtype=torch.long, device=h.device)
-        # neg_out = score_func(h[edge[0]], h[edge[1]])
+        edge = torch.randint(0, num_nodes, edge.size(), dtype=torch.long, device=h.device)
+        neg_out = score_func(h[edge[0]], h[edge[1]])
 
         pos_loss = -torch.log(pos_out + 1e-15).mean()
         neg_loss = -torch.log(1 - neg_out + 1e-15).mean()
@@ -232,7 +233,6 @@ def test_edge(score_func, input_data, h, batch_size):
     preds = []
     for perm  in DataLoader(range(input_data.size(0)), batch_size):
         edge = input_data[perm].t()
-        print(score_func(h[edge[0]], h[edge[1]]))
         preds += [score_func(h[edge[0]], h[edge[1]]).cpu()]  
 
     pred_all = torch.cat(preds, dim=0)
@@ -257,6 +257,9 @@ def test(model, score_func, data, x, evaluator_hit, evaluator_mrr, batch_size):
     neg_valid_pred, pos_valid_pred = torch.flatten(neg_valid_pred),  torch.flatten(pos_valid_pred)
     pos_test_pred, neg_test_pred = torch.flatten(pos_test_pred), torch.flatten(neg_test_pred)
 
+    print(f"正样本预测值范围: min={pos_test_pred.min().item()}, max={pos_test_pred.max().item()}, mean={pos_test_pred.mean().item()}")
+    print(f"负样本预测值范围: min={neg_test_pred.min().item()}, max={neg_test_pred.max().item()}, mean={neg_test_pred.mean().item()}")
+    
     print('train valid_pos valid_neg test_pos test_neg', 
           pos_train_pred.size(), pos_valid_pred.size(), 
           neg_valid_pred.size(), pos_test_pred.size(), neg_test_pred.size())
@@ -344,8 +347,10 @@ def main():
 
     loggers = {
         'Hits@1': Logger(args.runs),
-        'Hits@3': Logger(args.runs),
-        'Hits@10': Logger(args.runs),
+        # 'Hits@3': Logger(args.runs),
+        # 'Hits@10': Logger(args.runs),
+        'Hits@20': Logger(args.runs),
+        'Hits@50': Logger(args.runs),
         'Hits@100': Logger(args.runs),
         'MRR': Logger(args.runs),
         'AUC':Logger(args.runs),
@@ -397,17 +402,7 @@ def main():
                             f'Loss: {loss:.4f}, '
                             f'Train: {100 * train_hits:.2f}%, '
                             f'Valid: {100 * valid_hits:.2f}%, '
-                            f'Test: {100 * test_hits:.2f}%, '
-                            f'Precision: {100 * result["Precision"][1]:.2f}%, '
-                            f'Recall: {100 * result["Recall"][1]:.2f}%')
-
-                        # log_print.info(
-                        #     f'Run: {run + 1:02d}, '
-                        #     f'Epoch: {epoch:02d}, '
-                        #     f'Loss: {loss:.4f}, '
-                        #     f'Train: {100 * train_hits:.2f}%, '
-                        #     f'Valid: {100 * valid_hits:.2f}%, '
-                        #     f'Test: {100 * test_hits:.2f}%')
+                            f'Test: {100 * test_hits:.2f}%')
                     print('---')
 
                 best_valid_current = torch.tensor(loggers[eval_metric].results[run])[:, 1].max()
@@ -450,7 +445,7 @@ def main():
     
     print(best_metric_valid_str +' ' +best_auc_valid_str)
 
-    result_file = os.path.join(args.output_dir, 'result.json')
+    result_file = os.path.join(args.output_dir, f'lr{args.lr}_drop{args.dropout}_l2{args.l2}_numlayer{args.num_layers}_numPredlay{args.num_layers_predictor}_dim{args.hidden_channels}_result.json')
     with open(result_file, 'w') as f:
         json.dump(result_all_run, f)
 
