@@ -11,6 +11,13 @@ num_model_layers = [1, 3]
 num_prediction_layers = [1, 3]
 embedding_dims = [128, 256]
 
+# learning_rates = [0.05, 0.1]
+# dropouts = [0.1]
+# weight_decays = [0]
+# num_model_layers = [1]
+# num_prediction_layers = [1]
+# embedding_dims = [128]
+
 param_grid = list(itertools.product(
     learning_rates, dropouts, weight_decays, num_model_layers, num_prediction_layers, embedding_dims
 ))
@@ -36,16 +43,16 @@ def run_experiment(params):
         "--epochs", "9999",
         "--kill_cnt", "10",
         "--eval_steps", "5",
-        "--batch_size", "8192",
-        "--runs", "1",
+        "--batch_size", "2048",
+        "--runs", "2",
         "--output_dir", "gridsearch_results",
-        "--save",
-        "--device", str(device)  # 指定设备
+        # "--save",
+        "--device", str(device)
     ]
     
     subprocess.run(command)
     
-    result_file = os.path.join("gridsearch_results", f'lr{lr}_drop{dropout}_l2{l2}_numlayer{num_layers}_numPredlay{num_layers_predictor}_dim{hidden_channels}_best_run_0', "result.json")
+    result_file = os.path.join("gridsearch_results", f'lr{lr}_drop{dropout}_l2{l2}_numlayer{num_layers}_numPredlay{num_layers_predictor}_dim{hidden_channels}_result.json')
     if os.path.exists(result_file):
         with open(result_file, 'r') as f:
             result = json.load(f)
@@ -56,7 +63,7 @@ def run_experiment(params):
 if __name__ == "__main__":
     param_grid_with_device = [(lr, dropout, l2, num_layers, num_layers_predictor, hidden_channels, i % 2) for i, (lr, dropout, l2, num_layers, num_layers_predictor, hidden_channels) in enumerate(param_grid)]
     
-    with Pool(processes=2) as pool:
+    with Pool(processes=8) as pool:
         results = pool.map(run_experiment, param_grid_with_device)
     
     for avg_precision, params in results:

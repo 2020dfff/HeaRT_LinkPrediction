@@ -12,8 +12,8 @@ from torch.utils.data import DataLoader
 from torch_sparse import SparseTensor
 
 
-from ogb.linkproppred import PygLinkPropPredDataset, Evaluator
-from evalutors import evaluate_hits, evaluate_mrr, evaluate_auc
+from ogb.linkproppred import Evaluator
+from evalutors import evaluate_hits, evaluate_mrr, evaluate_auc, evaluate_precision_recall
 
 
 dir_path  = get_root_dir()
@@ -47,13 +47,13 @@ def read_data(data_name, neg_mode):
 
             if split == 'train': 
                 train_pos.append((sub, obj))
-                
+
 
             if split == 'valid': valid_pos.append((sub, obj))  
             if split == 'test': test_pos.append((sub, obj))
     
-    num_nodes = len(node_set)
-    print('the number of nodes in ' + data_name + ' is: ', num_nodes)
+    # num_nodes = len(node_set)
+    # print('the number of nodes in ' + data_name + ' is: ', num_nodes)
 
     for split in ['test', 'valid']:
 
@@ -69,101 +69,105 @@ def read_data(data_name, neg_mode):
             # if sub == obj:
             #     continue
             
+            node_set.add(sub)
+            node_set.add(obj)
+            
             if split == 'valid': 
                 valid_neg.append((sub, obj))
                
             if split == 'test': 
                 test_neg.append((sub, obj))
 
+    num_nodes = len(node_set)
+    print('the number of nodes in ' + data_name + ' is: ', num_nodes)
+
+    print('============train_edges', type(train_pos), len(train_pos), '============')
+    print('============valid_edges', type(valid_pos), len(valid_pos), '============')
+    print('============test_positive_edges', type(test_pos), len(test_pos), '============')
+    print('============test_negative_edges', type(test_neg), len(test_neg), '============')
+
     train_edge = torch.transpose(torch.tensor(train_pos), 1, 0)
-    edge_index = torch.cat((train_edge,  train_edge[[1,0]]), dim=1)
+    edge_index = torch.cat((train_edge, train_edge[[1, 0]]), dim=1)
     edge_weight = torch.ones(edge_index.size(1))
 
-
     A = ssp.csr_matrix((edge_weight.view(-1), (edge_index[0], edge_index[1])), shape=(num_nodes, num_nodes)) 
-
     adj = SparseTensor.from_edge_index(edge_index, edge_weight, [num_nodes, num_nodes])
-          
-
     train_pos_tensor = torch.tensor(train_pos)
-
     valid_pos = torch.tensor(valid_pos)
     valid_neg =  torch.tensor(valid_neg)
-
     test_pos =  torch.tensor(test_pos)
     test_neg =  torch.tensor(test_neg)
-
     idx = torch.randperm(train_pos_tensor.size(0))
     idx = idx[:valid_pos.size(0)]
     train_val = train_pos_tensor[idx]
-
-
-    feature_embeddings = torch.load(dir_path+'/dataset' + '/{}/{}'.format(data_name, 'node_features.pt'))
+    feature_embeddings = torch.load(dir_path+'/dataset' + '/{}/{}'.format(data_name, 'gnn_feature.pt'))
     # feature_embeddings = feature_embeddings['entity_embedding']
 
     data = {}
     data['adj'] = adj
     data['train_pos'] = train_pos_tensor
     data['train_val'] = train_val
-
     data['valid_pos'] = valid_pos
     data['valid_neg'] = valid_neg
     data['test_pos'] = test_pos
     data['test_neg'] = test_neg
-
     data['x'] = feature_embeddings
 
     return data
 
 
 def get_metric_score(evaluator_hit, evaluator_mrr, pos_train_pred, pos_val_pred, neg_val_pred, pos_test_pred, neg_test_pred):
-
-    
     # result_hit = evaluate_hits(evaluator_hit, pos_val_pred, neg_val_pred, pos_test_pred, neg_test_pred)
     result = {}
-    k_list = [1, 3, 10, 100]
+
+    # Calculate Hits@K
+    k_list = [1, 20, 50, 100]
     result_hit_train = evaluate_hits(evaluator_hit, pos_train_pred, neg_val_pred, k_list)
     result_hit_val = evaluate_hits(evaluator_hit, pos_val_pred, neg_val_pred, k_list)
     result_hit_test = evaluate_hits(evaluator_hit, pos_test_pred, neg_test_pred, k_list)
-
-    # result_hit = {}
-    for K in [1, 3, 10, 100]:
+    for K in k_list:
         result[f'Hits@{K}'] = (result_hit_train[f'Hits@{K}'], result_hit_val[f'Hits@{K}'], result_hit_test[f'Hits@{K}'])
 
-
+    # Calculate MRR
     result_mrr_train = evaluate_mrr(evaluator_mrr, pos_train_pred, neg_val_pred.repeat(pos_train_pred.size(0), 1))
     result_mrr_val = evaluate_mrr(evaluator_mrr, pos_val_pred, neg_val_pred.repeat(pos_val_pred.size(0), 1) )
     result_mrr_test = evaluate_mrr(evaluator_mrr, pos_test_pred, neg_test_pred.repeat(pos_test_pred.size(0), 1) )
-    
-    # result_mrr = {}
     result['MRR'] = (result_mrr_train['MRR'], result_mrr_val['MRR'], result_mrr_test['MRR'])
-    # for K in [1,3,10, 100]:
-    #     result[f'mrr_hit{K}'] = (result_mrr_train[f'mrr_hit{K}'], result_mrr_val[f'mrr_hit{K}'], result_mrr_test[f'mrr_hit{K}'])
 
-   
+    # Calculate AUC & AP
     train_pred = torch.cat([pos_train_pred, neg_val_pred])
     train_true = torch.cat([torch.ones(pos_train_pred.size(0), dtype=int), 
                             torch.zeros(neg_val_pred.size(0), dtype=int)])
-
     val_pred = torch.cat([pos_val_pred, neg_val_pred])
     val_true = torch.cat([torch.ones(pos_val_pred.size(0), dtype=int), 
                             torch.zeros(neg_val_pred.size(0), dtype=int)])
     test_pred = torch.cat([pos_test_pred, neg_test_pred])
     test_true = torch.cat([torch.ones(pos_test_pred.size(0), dtype=int), 
                             torch.zeros(neg_test_pred.size(0), dtype=int)])
-
     result_auc_train = evaluate_auc(train_pred, train_true)
     result_auc_val = evaluate_auc(val_pred, val_true)
     result_auc_test = evaluate_auc(test_pred, test_true)
-
-    # result_auc = {}
     result['AUC'] = (result_auc_train['AUC'], result_auc_val['AUC'], result_auc_test['AUC'])
     result['AP'] = (result_auc_train['AP'], result_auc_val['AP'], result_auc_test['AP'])
 
-    
+    # Calculate Precision & Recall
+    train_pred_p = torch.cat([torch.sigmoid(pos_train_pred), torch.sigmoid(neg_val_pred)])
+    train_true = torch.cat([torch.ones(pos_train_pred.size(0), dtype=int), 
+                            torch.zeros(neg_val_pred.size(0), dtype=int)])
+    val_pred_p = torch.cat([torch.sigmoid(pos_val_pred), torch.sigmoid(neg_val_pred)])
+    val_true = torch.cat([torch.ones(pos_val_pred.size(0), dtype=int), 
+                            torch.zeros(neg_val_pred.size(0), dtype=int)])
+    test_pred_p = torch.cat([torch.sigmoid(pos_test_pred), torch.sigmoid(neg_test_pred)])
+    test_true = torch.cat([torch.ones(pos_test_pred.size(0), dtype=int), 
+                            torch.zeros(neg_test_pred.size(0), dtype=int)])
+    result_prec_rec_train = evaluate_precision_recall(train_pred_p, train_true)
+    result_prec_rec_val = evaluate_precision_recall(val_pred_p, val_true)
+    result_prec_rec_test = evaluate_precision_recall(test_pred_p, test_true)
+    result['Precision'] = (result_prec_rec_train['Precision'], result_prec_rec_val['Precision'], result_prec_rec_test['Precision'])
+    result['Recall'] = (result_prec_rec_train['Recall'], result_prec_rec_val['Recall'], result_prec_rec_test['Recall'])
+
     return result
 
-        
 
 def train(model, score_func, train_pos, x, optimizer, batch_size):
     model.train()
@@ -171,45 +175,46 @@ def train(model, score_func, train_pos, x, optimizer, batch_size):
 
     # train_pos = train_pos.transpose(1, 0)
     total_loss = total_examples = 0
+    
+    # pos_weight = torch.tensor([3.44]).to(x.device) # unbalanced pos:neg = 1:3.44
+    # loss_fn = torch.nn.BCEWithLogitsLoss(pos_weight=pos_weight)
 
-    for perm in DataLoader(range(train_pos.size(0)), batch_size,
-                           shuffle=True):
+    for perm in DataLoader(range(train_pos.size(0)), batch_size, shuffle=True):
         optimizer.zero_grad()
         num_nodes = x.size(0)
 
-        ######################### remove loss edges from the aggregation
+        # Remove loss edges from the aggregation
         mask = torch.ones(train_pos.size(0), dtype=torch.bool).to(train_pos.device)
         mask[perm] = 0
-        train_edge_mask = train_pos[mask].transpose(1,0)
+        train_edge_mask = train_pos[mask].transpose(1, 0)
 
-        # train_edge_mask = to_undirected(train_edge_mask)
-        train_edge_mask = torch.cat((train_edge_mask, train_edge_mask[[1,0]]),dim=1)
-        # edge_weight_mask = torch.cat((edge_weight_mask, edge_weight_mask), dim=0).to(torch.float)
+        # Ensure edges are undirected
+        train_edge_mask = torch.cat((train_edge_mask, train_edge_mask[[1, 0]]), dim=1)
         edge_weight_mask = torch.ones(train_edge_mask.size(1)).to(torch.float).to(train_pos.device)
-        
+
         adj = SparseTensor.from_edge_index(train_edge_mask, edge_weight_mask, 
                                            [num_nodes, num_nodes]).to(train_pos.device)
-            
-        ###################
-        # print(adj)
 
         h = model(x, adj)
         edge = train_pos[perm].t()
+
         pos_out = score_func(h[edge[0]], h[edge[1]])
-        pos_loss = -torch.log(pos_out + 1e-15).mean()
 
         # Just do some trivial random sampling.
-        edge = torch.randint(0, num_nodes, edge.size(), dtype=torch.long,
-                             device=h.device)
+        edge = torch.randint(0, num_nodes, edge.size(), dtype=torch.long, device=h.device)
         neg_out = score_func(h[edge[0]], h[edge[1]])
+
+        pos_loss = -torch.log(pos_out + 1e-15).mean()
         neg_loss = -torch.log(1 - neg_out + 1e-15).mean()
-
         loss = pos_loss + neg_loss
-        loss.backward()
 
+        # pos_labels = torch.ones_like(pos_out)
+        # neg_labels = torch.zeros_like(neg_out)
+        # loss = loss_fn(pos_out, pos_labels) + loss_fn(neg_out, neg_labels)
+
+        loss.backward()
         torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
         torch.nn.utils.clip_grad_norm_(score_func.parameters(), 1.0)
-
         optimizer.step()
 
         num_examples = pos_out.size(0)
@@ -217,7 +222,6 @@ def train(model, score_func, train_pos, x, optimizer, batch_size):
         total_examples += num_examples
 
     return total_loss / total_examples
-
 
 
 @torch.no_grad()
@@ -251,6 +255,9 @@ def test(model, score_func, data, x, evaluator_hit, evaluator_mrr, batch_size):
     neg_valid_pred, pos_valid_pred = torch.flatten(neg_valid_pred),  torch.flatten(pos_valid_pred)
     pos_test_pred, neg_test_pred = torch.flatten(pos_test_pred), torch.flatten(neg_test_pred)
 
+    print(f"正样本预测值范围: min={pos_test_pred.min().item()}, max={pos_test_pred.max().item()}, mean={pos_test_pred.mean().item()}")
+    print(f"负样本预测值范围: min={neg_test_pred.min().item()}, max={neg_test_pred.max().item()}, mean={neg_test_pred.mean().item()}")
+    
     print('train valid_pos valid_neg test_pos test_neg', 
           pos_train_pred.size(), pos_valid_pred.size(), 
           neg_valid_pred.size(), pos_test_pred.size(), neg_test_pred.size())
@@ -260,8 +267,6 @@ def test(model, score_func, data, x, evaluator_hit, evaluator_mrr, batch_size):
     score_emb = [pos_valid_pred.cpu(),neg_valid_pred.cpu(), pos_test_pred.cpu(), neg_test_pred.cpu(), x.cpu()]
 
     return result, score_emb
-
-
 
 
 def main():
@@ -277,16 +282,15 @@ def main():
     parser.add_argument('--hidden_channels', type=int, default=64)
     parser.add_argument('--dropout', type=float, default=0.0)
 
-
     ### train setting
     parser.add_argument('--batch_size', type=int, default=1024)
     parser.add_argument('--lr', type=float, default=0.001)
     parser.add_argument('--epochs', type=int, default=9999)
     parser.add_argument('--eval_steps', type=int, default=5)
     parser.add_argument('--runs', type=int, default=10)
-    parser.add_argument('--kill_cnt',           dest='kill_cnt',      default=10,    type=int,       help='early stopping')
+    parser.add_argument('--kill_cnt', dest='kill_cnt', default=10, type=int, help='early stopping')
     parser.add_argument('--output_dir', type=str, default='output_test')
-    parser.add_argument('--l2',		type=float,             default=0.0,			help='L2 Regularization for Optimizer')
+    parser.add_argument('--l2', type=float, default=0.0, help='L2 Regularization for Optimizer')
     parser.add_argument('--seed', type=int, default=999)
     
     parser.add_argument('--save', action='store_true', default=False)
@@ -304,7 +308,6 @@ def main():
     ###### n2v
     parser.add_argument('--cat_n2v_feat', default=False, action='store_true')
     args = parser.parse_args()
-   
 
     print('cat_node_feat_mf: ', args.cat_node_feat_mf)
     print('cat_n2v_feat: ', args.cat_n2v_feat)
@@ -314,8 +317,6 @@ def main():
 
     device = f'cuda:{args.device}' if args.device != -1 and torch.cuda.is_available() else 'cpu'
     device = torch.device(device)
-
-    # dataset = Planetoid('.', 'cora')
 
     data = read_data(args.data_name, args.neg_mode)
     node_num = data['x'].size(0)
@@ -344,16 +345,20 @@ def main():
 
     loggers = {
         'Hits@1': Logger(args.runs),
-        'Hits@3': Logger(args.runs),
-        'Hits@10': Logger(args.runs),
+        # 'Hits@3': Logger(args.runs),
+        # 'Hits@10': Logger(args.runs),
+        'Hits@20': Logger(args.runs),
+        'Hits@50': Logger(args.runs),
         'Hits@100': Logger(args.runs),
         'MRR': Logger(args.runs),
         'AUC':Logger(args.runs),
-        'AP':Logger(args.runs)
+        'AP':Logger(args.runs),
+        'Precision':Logger(args.runs),
+        'Recall':Logger(args.runs)
     }
 
     for run in range(args.runs):
-        print('#################################          ', run, '          #################################')
+        print('#################################', run, '#################################')
         
         if args.runs == 1:
             seed = args.seed
@@ -391,11 +396,11 @@ def main():
 
                         log_print.info(
                             f'Run: {run + 1:02d}, '
-                              f'Epoch: {epoch:02d}, '
-                              f'Loss: {loss:.4f}, '
-                              f'Train: {100 * train_hits:.2f}%, '
-                              f'Valid: {100 * valid_hits:.2f}%, '
-                              f'Test: {100 * test_hits:.2f}%')
+                            f'Epoch: {epoch:02d}, '
+                            f'Loss: {loss:.4f}, '
+                            f'Train: {100 * train_hits:.2f}%, '
+                            f'Valid: {100 * valid_hits:.2f}%, '
+                            f'Test: {100 * test_hits:.2f}%')
                     print('---')
 
                 best_valid_current = torch.tensor(loggers[eval_metric].results[run])[:, 1].max()
@@ -407,7 +412,6 @@ def main():
                     if args.save:
 
                         save_emb(score_emb, save_path)
-
                 
                 else:
                     kill_cnt += 1
@@ -429,8 +433,6 @@ def main():
         if key == eval_metric:
             best_metric_valid_str = best_metric
             best_valid_mean_metric = best_valid_mean
-
-
             
         if key == 'AUC':
             best_auc_valid_str = best_metric
@@ -441,6 +443,10 @@ def main():
     
     print(best_metric_valid_str +' ' +best_auc_valid_str)
 
+    result_file = os.path.join(args.output_dir, f'gnn_model{args.gnn_model}_lr{args.lr}_drop{args.dropout}_l2{args.l2}_numlayer{args.num_layers}_numPredlay{args.num_layers_predictor}_dim{args.hidden_channels}_result.json')
+    with open(result_file, 'w') as f:
+        json.dump(result_all_run, f)
+
     return best_valid_mean_metric, best_auc_metric, result_all_run
 
 
@@ -448,4 +454,16 @@ def main():
 if __name__ == "__main__":
     main()
 
-   
+
+# Best paras for Cora
+# python main_gnn_bluesky.py  --data_name cora --gnn_model GCN --lr 0.01 --dropout 0.3 --l2 1e-4 --num_layers 1  --num_layers_predictor 3 --hidden_channels 128 --epochs 9999 --kill_cnt 10 --eval_steps 5  --batch_size 1024
+
+# Best paras for GCN
+# python main_gnn_bluesky.py  --data_name bluesky --gnn_model GCN --lr 0.01 --dropout 0.1 --l2 0 --num_layers 1  --num_layers_predictor 1 --hidden_channels 256 --epochs 9999 --kill_cnt 10 --eval_steps 5 --runs 10 --batch_size 2048
+# python main_gnn_shuffled.py  --data_name bluesky --gnn_model GCN --lr 0.01 --dropout 0.1 --l2 0 --num_layers 1  --num_layers_predictor 1 --hidden_channels 256 --epochs 9999 --kill_cnt 10 --eval_steps 5 --runs 10 --batch_size 2048
+# python main_gnn_bluesky.py  --data_name random_bluesky --gnn_model GCN--lr 0.01 --dropout 0.1 --l2 0 --num_layers 1  --num_layers_predictor 1 --hidden_channels 256 --epochs 9999 --kill_cnt 10 --eval_steps 5 --runs 10 --batch_size 2048
+
+# Best paras for GAT
+# python main_gnn_bluesky.py  --data_name bluesky --gnn_model GAT --lr 0.01 --dropout 0.1 --l2 0 --num_layers 1  --num_layers_predictor 1 --hidden_channels 256 --epochs 9999 --kill_cnt 10 --eval_steps 5 --runs 10 --batch_size 2048
+# python main_gnn_shuffled.py  --data_name bluesky --gnn_model GAT --lr 0.01 --dropout 0.1 --l2 0 --num_layers 1  --num_layers_predictor 1 --hidden_channels 256 --epochs 9999 --kill_cnt 10 --eval_steps 5 --runs 10 --batch_size 2048
+# python main_gnn_bluesky.py  --data_name random_bluesky --gnn_model GAT --lr 0.01 --dropout 0.1 --l2 0 --num_layers 1  --num_layers_predictor 1 --hidden_channels 256 --epochs 9999 --kill_cnt 10 --eval_steps 5 --runs 10 --batch_size 2048

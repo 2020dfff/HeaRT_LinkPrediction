@@ -58,7 +58,7 @@ def read_data(data_name, neg_mode):
     for split in ['test', 'valid']:
 
         if neg_mode == 'equal':
-            path = dir_path+'/dataset' + '/{}/{}_neg.txt'.format(data_name, split)
+            path = dir_path+'/dataset' + '/{}/{}_neg_shuffled.txt'.format(data_name, split)
 
         elif neg_mode == 'all':
             path = dir_path+'/dataset' + '/{}/allneg/{}_neg.txt'.format(data_name, split)
@@ -81,8 +81,13 @@ def read_data(data_name, neg_mode):
     num_nodes = len(node_set)
     print('the number of nodes in ' + data_name + ' is: ', num_nodes)
 
+    print('============train_edges', type(train_pos), len(train_pos), '============')
+    print('============valid_edges', type(valid_pos), len(valid_pos), '============')
+    print('============test_positive_edges', type(test_pos), len(test_pos), '============')
+    print('============test_negative_edges', type(test_neg), len(test_neg), '============')
+
     train_edge = torch.transpose(torch.tensor(train_pos), 1, 0)
-    edge_index = torch.cat((train_edge,  train_edge[[1,0]]), dim=1)
+    edge_index = torch.cat((train_edge, train_edge[[1, 0]]), dim=1)
     edge_weight = torch.ones(edge_index.size(1))
 
     A = ssp.csr_matrix((edge_weight.view(-1), (edge_index[0], edge_index[1])), shape=(num_nodes, num_nodes)) 
@@ -97,7 +102,6 @@ def read_data(data_name, neg_mode):
     train_val = train_pos_tensor[idx]
     feature_embeddings = torch.load(dir_path+'/dataset' + '/{}/{}'.format(data_name, 'gnn_feature.pt'))
     # feature_embeddings = feature_embeddings['entity_embedding']
-
 
     data = {}
     data['adj'] = adj
@@ -175,32 +179,26 @@ def train(model, score_func, train_pos, x, optimizer, batch_size):
     # pos_weight = torch.tensor([3.44]).to(x.device) # unbalanced pos:neg = 1:3.44
     # loss_fn = torch.nn.BCEWithLogitsLoss(pos_weight=pos_weight)
 
-    for perm in DataLoader(range(train_pos.size(0)), batch_size,
-                           shuffle=True):
+    for perm in DataLoader(range(train_pos.size(0)), batch_size, shuffle=True):
         optimizer.zero_grad()
         num_nodes = x.size(0)
 
-        ######################### remove loss edges from the aggregation
+        # Remove loss edges from the aggregation
         mask = torch.ones(train_pos.size(0), dtype=torch.bool).to(train_pos.device)
         mask[perm] = 0
-        train_edge_mask = train_pos[mask].transpose(1,0)
+        train_edge_mask = train_pos[mask].transpose(1, 0)
 
-        # train_edge_mask = to_undirected(train_edge_mask)
-        train_edge_mask = torch.cat((train_edge_mask, train_edge_mask[[1,0]]),dim=1)
-        # edge_weight_mask = torch.cat((edge_weight_mask, edge_weight_mask), dim=0).to(torch.float)
+        # Ensure edges are undirected
+        train_edge_mask = torch.cat((train_edge_mask, train_edge_mask[[1, 0]]), dim=1)
         edge_weight_mask = torch.ones(train_edge_mask.size(1)).to(torch.float).to(train_pos.device)
-        
+
         adj = SparseTensor.from_edge_index(train_edge_mask, edge_weight_mask, 
                                            [num_nodes, num_nodes]).to(train_pos.device)
 
         h = model(x, adj)
         edge = train_pos[perm].t()
-        pos_out = score_func(h[edge[0]], h[edge[1]])
 
-        # do negative sampling in larger scale
-        # num_neg_samples = int(4 * edge.size(1))
-        # neg_edge = torch.randint(0, num_nodes, (2, num_neg_samples), dtype=torch.long, device=h.device)
-        # neg_out = score_func(h[neg_edge[0]], h[neg_edge[1]])
+        pos_out = score_func(h[edge[0]], h[edge[1]])
 
         # Just do some trivial random sampling.
         edge = torch.randint(0, num_nodes, edge.size(), dtype=torch.long, device=h.device)
@@ -441,11 +439,11 @@ def main():
             best_auc_metric = best_valid_mean
 
         result_all_run[key] = [mean_list, var_list]
-        
+
     
     print(best_metric_valid_str +' ' +best_auc_valid_str)
 
-    result_file = os.path.join(args.output_dir, f'lr{args.lr}_drop{args.dropout}_l2{args.l2}_numlayer{args.num_layers}_numPredlay{args.num_layers_predictor}_dim{args.hidden_channels}_result.json')
+    result_file = os.path.join(args.output_dir, f'gnn_model{args.gnn_model}_lr{args.lr}_drop{args.dropout}_l2{args.l2}_numlayer{args.num_layers}_numPredlay{args.num_layers_predictor}_dim{args.hidden_channels}_result.json')
     with open(result_file, 'w') as f:
         json.dump(result_all_run, f)
 
@@ -456,4 +454,17 @@ def main():
 if __name__ == "__main__":
     main()
 
-   
+
+
+# Best paras for Cora
+# python main_gnn_bluesky.py  --data_name cora --gnn_model GCN --lr 0.01 --dropout 0.3 --l2 1e-4 --num_layers 1  --num_layers_predictor 3 --hidden_channels 128 --epochs 9999 --kill_cnt 10 --eval_steps 5  --batch_size 1024
+
+# Best paras for GCN
+# python main_gnn_bluesky.py  --data_name bluesky --gnn_model GCN --lr 0.01 --dropout 0.1 --l2 0 --num_layers 1  --num_layers_predictor 1 --hidden_channels 256 --epochs 9999 --kill_cnt 10 --eval_steps 5 --runs 10 --batch_size 2048
+# python main_gnn_shuffled.py  --data_name bluesky --gnn_model GCN --lr 0.01 --dropout 0.1 --l2 0 --num_layers 1  --num_layers_predictor 1 --hidden_channels 256 --epochs 9999 --kill_cnt 10 --eval_steps 5 --runs 10 --batch_size 2048
+# python main_gnn_bluesky.py  --data_name random_bluesky --gnn_model GCN--lr 0.01 --dropout 0.1 --l2 0 --num_layers 1  --num_layers_predictor 1 --hidden_channels 256 --epochs 9999 --kill_cnt 10 --eval_steps 5 --runs 10 --batch_size 2048
+
+# Best paras for GAT
+# python main_gnn_bluesky.py  --data_name bluesky --gnn_model GAT --lr 0.01 --dropout 0.1 --l2 0 --num_layers 1  --num_layers_predictor 1 --hidden_channels 256 --epochs 9999 --kill_cnt 10 --eval_steps 5 --runs 10 --batch_size 2048
+# python main_gnn_shuffled.py  --data_name bluesky --gnn_model GAT --lr 0.01 --dropout 0.1 --l2 0 --num_layers 1  --num_layers_predictor 1 --hidden_channels 256 --epochs 9999 --kill_cnt 10 --eval_steps 5 --runs 10 --batch_size 2048
+# python main_gnn_bluesky.py  --data_name random_bluesky --gnn_model GAT --lr 0.01 --dropout 0.1 --l2 0 --num_layers 1  --num_layers_predictor 1 --hidden_channels 256 --epochs 9999 --kill_cnt 10 --eval_steps 5 --runs 10 --batch_size 2048
